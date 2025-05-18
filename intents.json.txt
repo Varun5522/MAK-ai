@@ -1,0 +1,39 @@
+﻿{
+  "intents": [
+    {
+      "tag": "greeting",
+      "patterns": ["Hi", "Hello", "Hey", "Good morning", "Good evening"],
+      "responses": ["Hello!", "Hi there!", "Hey!", "Greetings!", "Hi, how can I help you?"]
+    },
+    {
+      "tag": "goodbye",
+      "patterns": ["Bye", "See you later", "Goodbye", "I am leaving"],
+      "responses": ["Goodbye!", "See you later!", "Have a nice day!", "Bye! Take care."]
+    },
+    {
+      "tag": "thanks",
+      "patterns": ["Thanks", "Thank you", "That's helpful", "Thanks a lot"],
+      "responses": ["You're welcome!", "No problem!", "Happy to help!", "Anytime!"]
+    },
+    {
+      "tag": "weather",
+      "patterns": ["What's the weather", "Tell me the weather", "Weather in New York", "Is it raining?"],
+      "responses": ["Let me check the weather for you...", "Fetching weather..."]
+    },
+    {
+      "tag": "time",
+      "patterns": ["What's the time", "Current time", "Tell me the time", "Time please"],
+      "responses": ["Let me check the current time...", "Fetching time..."]
+    },
+    {
+      "tag": "openai",
+      "patterns": ["Tell me a joke", "Who is the president of the USA?", "Explain black holes"],
+      "responses": ["Let me think about that...", "One moment..."]
+    },
+    {
+      "tag": "unknown",
+      "patterns": [],
+      "responses": ["I'm not sure I understand. Could you try rephrasing?", "Sorry, I didn’t get that. Can you say it again?"]
+    }
+  ]
+}

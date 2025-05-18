@@ -1,0 +1,9 @@
+﻿Flask
+openai
+nltk
+numpy
+tensorflow
+requests
+twilio
+pyaudio
+pvporcupine

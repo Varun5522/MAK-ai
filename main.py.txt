@@ -1,0 +1,207 @@
+﻿from flask import Flask, render_template_string, request, session
+import openai
+import json
+import pickle
+import numpy as np
+import nltk
+from nltk.stem import WordNetLemmatizer
+import threading
+import time
+import requests
+import datetime
+from twilio.rest import Client
+import pyaudio
+import pvporcupine
+import random
+from tensorflow.keras.models import load_model
+
+# Initialize Flask and variables
+app = Flask(__name__)
+app.secret_key = "super-secret-key"
+nltk.download('punkt')
+nltk.download('wordnet')
+lemmatizer = WordNetLemmatizer()
+
+# Load model and data
+model = load_model("chatbot_model.h5")
+words = pickle.load(open("words.pkl", "rb"))
+classes = pickle.load(open("classes.pkl", "rb"))
+
+openai.api_key = "your-openai-api-key"
+
+# Wake word detection thread
+def listen_for_wake_word():
+    porcupine = pvporcupine.create(keywords=["hey meta", "hello meta"])
+    audio = pyaudio.PyAudio()
+    stream = audio.open(rate=16000, channels=1, format=pyaudio.paInt16, input=True, frames_per_buffer=512)
+    
+    while True:
+        pcm = np.frombuffer(stream.read(512), dtype=np.int16)
+        result = porcupine.process(pcm)
+        if result >= 0:
+            print("Wake word detected!")
+            return
+
+# Utility functions
+def get_weather(location="New York"):
+    api_key = "your_openweathermap_api_key"
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={location}&appid={api_key}&units=metric"
+    response = requests.get(url)
+    data = response.json()
+    
+    if response.status_code == 200:
+        temp = data["main"]["temp"]
+        description = data["weather"][0]["description"]
+        return f"The weather in {location} is {description} with a temperature of {temp}°C."
+    return "Sorry, I couldn't fetch the weather."
+
+def get_time():
+    now = datetime.datetime.now()
+    return f"The current time is {now.strftime('%H:%M:%S')}."
+
+def handle_multiple_commands(user_input):
+    responses = []
+    if "weather" in user_input:
+        responses.append(get_weather())
+    if "time" in user_input:
+        responses.append(get_time())
+    return " ".join(responses)
+
+def clean_up_sentence(sentence):
+    sentence_words = nltk.word_tokenize(sentence)
+    return [lemmatizer.lemmatize(word.lower()) for word in sentence_words]
+
+def bag_of_words(sentence):
+    sentence_words = clean_up_sentence(sentence)
+    bag = [0] * len(words)
+    for s in sentence_words:
+        for i, w in enumerate(words):
+            if w == s:
+                bag[i] = 1
+    return np.array(bag)
+
+def predict_class(sentence):
+    bow = bag_of_words(sentence)
+    res = model.predict(np.array([bow]))[0]
+    ERROR_THRESHOLD = 0.5
+    results = [[i, r] for i, r in enumerate(res) if r > ERROR_THRESHOLD]
+    results.sort(key=lambda x: x[1], reverse=True)
+    return [{"intent": classes[r[0]], "probability": str(r[1])} for r in results]
+
+def get_response(ints):
+    if not ints:
+        return None
+    tag = ints[0]['intent']
+    with open("intents.json") as file:
+        intents = json.load(file)
+    for intent in intents["intents"]:
+        if intent["tag"] == tag:
+            return random.choice(intent["responses"])
+    return None
+
+def ask_gpt(prompt, history=None):
+    try:
+        messages = history if history else [{"role": "user", "content": prompt}]
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=messages
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Error contacting OpenAI: {str(e)}"
+
+def send_sms(to, body):
+    account_sid = 'your_account_sid'
+    auth_token = 'your_auth_token'
+    client = Client(account_sid, auth_token)
+    
+    message = client.messages.create(
+        body=body,
+        from_='+1234567890',
+        to=to
+    )
+    return "Message sent successfully."
+
+# Web Routes
+@app.route("/")
+def home():
+    return render_template_string(html_template)
+
+@app.route("/get")
+def chatbot_response():
+    user_msg = request.args.get('msg')
+    if "history" not in session:
+        session["history"] = []
+
+    session["history"].append({"role": "user", "content": user_msg})
+    ints = predict_class(user_msg)
+    res = get_response(ints)
+
+    if res is None:
+        res = ask_gpt(user_msg, session["history"])
+        session["history"].append({"role": "assistant", "content": res})
+
+    multi_response = handle_multiple_commands(user_msg)
+    return multi_response or res
+
+# HTML with voice input/output
+html_template = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Meta AI Chatbot</title>
+    <style>
+        body { font-family: Arial; padding: 20px; }
+        #chatbox { width: 300px; height: 400px; border: 1px solid #ccc; overflow-y: scroll; padding: 10px; }
+        input { width: 240px; }
+    </style>
+</head>
+<body>
+    <h2>Meta AI Chatbot with Voice</h2>
+    <div id="chatbox"></div><br>
+    <input type="text" id="userInput" placeholder="Type or speak..." />
+    <button onclick="sendMessage()">Send</button>
+    <button onclick="startVoice()">🎤 Speak</button>
+
+    <script>
+        const synth = window.speechSynthesis;
+
+        function speak(text) {
+            const utter = new SpeechSynthesisUtterance(text);
+            synth.speak(utter);
+        }
+
+        function sendMessage() {
+            const userText = document.getElementById("userInput").value;
+            document.getElementById("chatbox").innerHTML += "<p><b>You:</b> " + userText + "</p>";
+
+            fetch(`/get?msg=${encodeURIComponent(userText)}`)
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById("chatbox").innerHTML += "<p><b>Bot:</b> " + data + "</p>";
+                    speak(data);
+                    document.getElementById("userInput").value = "";
+                    document.getElementById("chatbox").scrollTop = document.getElementById("chatbox").scrollHeight;
+                });
+        }
+
+        function startVoice() {
+            const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+            recognition.lang = 'en-US';
+            recognition.start();
+
+            recognition.onresult = function(event) {
+                const transcript = event.results[0][0].transcript;
+                document.getElementById("userInput").value = transcript;
+                sendMessage();
+            };
+        }
+    </script>
+</body>
+</html>
+'''
+
+if __name__ == "__main__":
+    wake_thread = threading.Thread(target=listen_for_wake_word)
+    wake_thread.start()
+    app.run(debug=True)

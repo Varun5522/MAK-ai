@@ -1,0 +1,1 @@
+﻿['goodbye', 'greeting', 'openai', 'thanks', 'time', 'unknown', 'weather']
